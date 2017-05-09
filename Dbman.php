@@ -413,5 +413,68 @@ class Dbman
         }
         error_log(date('Y-m-d H:i:s').' err '.$data.PHP_EOL,3,'/tmp/dbman.'.date('Y-m-d').'.logs');
     }
+
+    protected function buildDataBaseSchema($tables, $db)
+    {
+        if ('' == $db) {
+            $dbName = $this->conf['database'];
+        } else {
+            $dbName = $db;
+        }
+        $backups_path = $this->conf['backups_path'];
+        foreach ($tables as $table) {
+            $content = '<?php ' . PHP_EOL . 'return ';
+            $info    = $this->getFields($table);
+            $content .= var_export($info, true) . ';';
+            file_put_contents($backups_path . '/' . $table . '.php', $content);
+        }
+    }
+
+    protected function getFields($tableName)
+    {
+        $tableName = '`' . $tableName . '`';
+        $sql = 'SHOW COLUMNS FROM ' . $tableName;
+        $result = $this->getList($sql);
+        $info   = [];
+        if ($result && is_array($result)) {
+            foreach ($result as $key => $val) {
+                $val                 = array_change_key_case($val);
+                $info[$val['field']] = [
+                    'name'    => $val['field'],
+                    'type'    => $val['type'],
+                    'notnull' => (bool) ('' === $val['null']),
+                    'default' => $val['default'],
+                    'primary' => (strtolower($val['key']) == 'pri'),
+                    'autoinc' => (strtolower($val['extra']) == 'auto_increment'),
+                ];
+            }
+        }
+        $data['fields'] = $info;
+        $data['index'] = array();
+        $data['version'] = '1.0';
+        $data['engine'] = 'innodb';
+        $data['comment'] = $tableName;
+        return $data;
+    }
+
+    protected function getTables($dbName = '')
+    {
+
+        $sql = !empty($dbName) ? 'SHOW TABLES FROM ' . $dbName : 'SHOW TABLES ';
+        $result = $this->getList($sql);
+        $info   = [];
+        //var_export($result);die;
+        foreach ($result as $key => $val) {
+            $info[$key] = current($val);
+        }
+        return $info;
+    }
+
+    public function backups(){
+        $database = $this->conf['database'];
+        $tables   = $this->getTables($database);
+        $this->buildDataBaseSchema($tables,$database);
+        echo PHP_EOL.'The backup data table'.PHP_EOL;
+    }
 }
 

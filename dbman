@@ -19,14 +19,18 @@ switch($option){
     case 'maintain':
         $dbmanObj->maintain();
         break;
+    case 'backups':
+        $dbmanObj->backups();
+        break;
     case 'help':
         echo "\t init : The system is initialized,You can use the --data to add data".PHP_EOL;
         echo "\t update : Add or update the list".PHP_EOL;
         echo "\t delete : Delete the field ".PHP_EOL;
         echo "\t maintain : update and delete".PHP_EOL;
+        echo "\t backups : Backup the data table".PHP_EOL;
         break;
     default:
-        echo "Usage : {init|update|delete|maintain|help}";
+        echo "Usage : {init|update|delete|maintain|backups|help}";
         echo PHP_EOL;
         break;
 }

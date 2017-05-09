@@ -14,6 +14,8 @@ return array(
     'sys_table'  =>  'sys_schema_info',
     // 文件路径
     'file_path'  =>  RUN_DIR.'/databases',
+    //备份目录
+    'backups_path'=> './cache',
     // 数据库表前缀
     'prefix'     =>  '',
     // 默认版本号
