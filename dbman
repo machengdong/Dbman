@@ -1,0 +1,32 @@
+#!/usr/bin/env php
+<?php
+$option = isset($argv[1]) && $argv[1] ? $argv[1] : null;
+require 'Dbman.php';
+define('RUN_DIR',__DIR__);
+$dbmanObj = new Dbman();
+
+switch($option){
+    case 'init':
+        $init = isset($argv[2]) && $argv[2] == '--data' ? true : false;
+        $dbmanObj->init($init);
+        break;
+    case 'update':
+        $dbmanObj->update();
+        break;
+    case 'delete':
+        $dbmanObj->delete();
+        break;
+    case 'maintain':
+        $dbmanObj->maintain();
+        break;
+    case 'help':
+        echo "\t init : The system is initialized,You can use the --data to add data".PHP_EOL;
+        echo "\t update : Add or update the list".PHP_EOL;
+        echo "\t delete : Delete the field ".PHP_EOL;
+        echo "\t maintain : update and delete".PHP_EOL;
+        break;
+    default:
+        echo "Usage : {init|update|delete|maintain|help}";
+        echo PHP_EOL;
+        break;
+}
