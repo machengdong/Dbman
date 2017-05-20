@@ -137,7 +137,7 @@ class Dbman
                 }
             }
         }
-      return $rows;
+        return $rows;
     }
     private function add_index_sql($tablename='',$info=array()){
         $sql = "ALTER TABLE `{$tablename}` ADD ";
@@ -193,14 +193,26 @@ class Dbman
     }
 
     public function maintain(){
+
+        $sys_table = $this->conf['sys_table'];
+        if(!$this->table_exists($sys_table)){
+            echo PHP_EOL."You should use the init method,And use the --data parameter!".PHP_EOL;
+            exit();
+        }
         $this->update();
         $this->delete();
+        if($this->errMsg && is_array($this->errMsg)) {
+            foreach((array)$this->errMsg as $err){
+                echo  ' | err: ' .$err.PHP_EOL;
+            }
+            exit('Run failed .!');
+        }
     }
 
     public function delete(){
         $db_arr = $this->get_schema_file();
         $tables = $this->getTableData();
-        foreach($tables as $v){
+        foreach((array)$tables as $v){
 
             if(isset($db_arr[$v['tablename']]) && $db_arr[$v['tablename']]){
                 $newTableInfo = $db_arr[$v['tablename']];
@@ -228,6 +240,7 @@ class Dbman
                 }
             }
         }
+        echo PHP_EOL."Deleting completed.!".PHP_EOL;
     }
 
     public function update(){
@@ -238,14 +251,18 @@ class Dbman
             foreach($db_arr as $k=>$v){
                 $tableInfo = $this->getTableInfo($k);
                 $v['version'] = (isset($v['version']) && !empty($v['version'])) ? $v['version'] : $default_v;
-                if($tableInfo && $tableInfo['version'] != $v['version']){
+                if($tableInfo && $tableInfo['tablename'] && $tableInfo['tableinfo'] && $v['version'] != '-1'){
                     //更新表
-                    $sql_arr = $this->get_update_table_sql($k,$v,$tableInfo);
-                    if($sql_arr) {
-                        $log_sql = $this->setTableInfo($k,$v);
-                        $this->execsql($log_sql,$errMsg);
-                        foreach($sql_arr as $sql){
-                            $rs = $this->execsql($sql,$errMsg);
+                    $oldInfo = md5($tableInfo['tableinfo']);
+                    $newInfo = md5(serialize($v));
+                    if($oldInfo != $newInfo){
+                        $sql_arr = $this->get_update_table_sql($k,$v,$tableInfo);
+                        if($sql_arr) {
+                            $log_sql = $this->setTableInfo($k,$v);
+                            $this->execsql($log_sql,$errMsg);
+                            foreach($sql_arr as $sql){
+                                $rs = $this->execsql($sql,$errMsg);
+                            }
                         }
                     }
                 }elseif($tableInfo && $v['version'] == '-1'){
@@ -266,15 +283,9 @@ class Dbman
                     }
                 }
             }
-            if($this->errMsg && is_array($this->errMsg)) {
-                foreach((array)$this->errMsg as $err){
-                    echo PHP_EOL.'sql: '.$sql . ' | err: ' .$err.PHP_EOL;
-                }
-                exit('Run failed .!');
-            }
         }
 
-        echo PHP_EOL.'complete.!'.PHP_EOL;
+        echo PHP_EOL.'Update complete.!'.PHP_EOL;
     }
 
     public function init($init=false){
@@ -286,12 +297,12 @@ class Dbman
         $sql = "CREATE TABLE `{$sys_table}`( `md5tablename` char(32) not null PRIMARY KEY default '' , `tablename` varchar(32) not null default '', `version` varchar(15) not null default '1.0', `tableinfo` longtext , `refresh_time` char(14) not null default 'null' )ENGINE = innodb DEFAULT CHARACTER SET utf8; ";
         $this->execsql($sql);
         if($init && $init == true){
-            $db_arr = $this->get_schema_file();
-            if($db_arr && is_array($db_arr)) {
-                foreach ($db_arr as $k => $v) {
-                    $log_sql = $this->setTableInfo($k, $v);
-                    $this->execsql($log_sql,$errMsg);
-                }
+            $database = $this->conf['database'];
+            $tables   = $this->getTables($database);
+            foreach ($tables as $table) {
+                $info = $this->getFields($table);
+                $log_sql = $this->setTableInfo($table,$info);
+                $this->execsql($log_sql,$errMsg);
             }
         }
         echo PHP_EOL."The initial complete".PHP_EOL;
@@ -354,7 +365,7 @@ class Dbman
 
 
     protected function _connect($host,$user,$passwd,$dbname){
-        $lnk = @mysql_connect($host,$user,$passwd);
+        $lnk = @mysql_connect($host,$user,$passwd) or die("Unable to connect to the database");
         mysql_select_db( $dbname, $lnk );
         return $lnk;
     }
@@ -422,11 +433,12 @@ class Dbman
             $dbName = $db;
         }
         $backups_path = $this->conf['backups_path'];
+        //var_export($backups_path);die;
         foreach ($tables as $table) {
             $content = '<?php ' . PHP_EOL . 'return ';
             $info    = $this->getFields($table);
             $content .= var_export($info, true) . ';';
-            file_put_contents($backups_path . '/' . $table . '.php', $content);
+            file_put_contents($backups_path . $table . '.php', $content);
         }
     }
 

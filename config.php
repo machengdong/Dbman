@@ -9,11 +9,11 @@ return array(
     // 端口
     'hostport'   =>  '3306',
     // 数据库名
-    'database'   =>  'qifa20170424',
+    'database'   =>  'tpzj',
     // 系统表
     'sys_table'  =>  'sys_schema_info',
     // 文件路径
-    'file_path'  =>  RUN_DIR.'/databases',
+    'file_path'  =>  RUN_DIR.'/demo',
     //备份目录
     'backups_path'=> './cache',
     // 数据库表前缀
