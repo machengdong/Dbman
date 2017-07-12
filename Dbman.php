@@ -1,160 +1,113 @@
 <?php
+
+/**
+ * Class Dbman
+ */
 class Dbman
 {
 
-    private $conf;
+    private static $conf = null;
 
     public $errMsg;
+
+    public $showup;
 
     public function __construct()
     {
         $pm = php_sapi_name();
-        $this->conf = $this->_getConf();
-        if($this->conf['web_access'] == true && $pm != 'cli'){
-            exit('Have no right to access !');
-        }
-        //$this->conf = $this->_getConf();
-        $this->db_lnk = $this->_connect($this->conf['db_host'],$this->conf['username'],$this->conf['password'],$this->conf['database']);
-
+        self::$conf = self::getConfig();
+        if(self::$conf['web_access'] == true && $pm != 'cli') exit('Have no right to access !');
+        $this->db_lnk = $this->_connect(self::$conf['db_host'],self::$conf['username'],self::$conf['password'],self::$conf['database']);
     }
 
+    /**
+     *关闭数据库连接
+     */
     public function __destruct()
     {
-        $this->close();//关闭数据库连接
+        $this->close();
     }
 
-    protected function _getConf(){
-        return require "config.php";
+    protected static function getConfig(){
+        return require_once "config.php";
     }
 
     private function get_schema_file($schema = '')
     {
-        $db = array();
+        $schema_file_array = array();
         if ($schema) {
-
+            //todo 指定更新某一个表
         } else {
-            $dir = $this->conf['file_path'];
-            //echo $dir;
-            if (is_dir($dir)) {
-                if ($dh = opendir($dir)) {
-                    while (($file = readdir($dh)) !== false) {
-                        if ($file != '.' && $file != '..' && pathinfo($file, PATHINFO_EXTENSION) == 'php') {
-                            $db[basename($file, ".php")] = require $dir . '/' . $file;
-                        }
+            $dir = self::$conf['file_path'];
+            if (is_dir($dir) && $dh = opendir($dir)) {
+                //把指定目录下的schema文件信息放到一个数组里面
+                while (($file = readdir($dh)) !== false) {
+                    if ($file != '.' && $file != '..' && pathinfo($file, PATHINFO_EXTENSION) == 'php') {
+                        $schema_file_array[basename($file, ".php")] = require $dir . '/' . $file;
                     }
-                    closedir($dh);
                 }
+                closedir($dh);
+
             }
         }
-        //var_dump($db);die;
-        if ($db) {
-            return $db;
-        }
-        return false;
 
+       return $schema_file_array;
     }
 
     private function get_create_table_sql($tablename = '',$arr = array())
     {
-        //var_dump($arr);
-        if ($arr && $arr['fields']) {
-            foreach ($arr['fields'] as $k => $v) {
-                if ($v && is_array($v)) if ($v['name']) $rows[] = '`' . $v['name'] . '` ' . $this->get_column_define($v);
-            }
-            $sql = 'CREATE TABLE `'.$tablename."` (\n\t".implode(",\n\t",$rows)."\n)";
-            $engine = isset($arr['engine'])?$arr['engine']:'InnoDB';
-            $sql .= 'ENGINE = '.$engine.' DEFAULT CHARACTER SET utf8;';
-            //todo if(isset($arr['comment']) && $arr['comment'])
-            $sql_arr[] = $sql;
-            if($arr['index'] && is_array($arr['index'])){
-                foreach($arr['index'] as $ik=>$iv){
-                    $sql_arr[] = $this->add_index_sql($tablename,$iv);
-                }
-            }
-            return $sql_arr;
+        //字段信息
+        foreach ((array)$arr['fields'] as $k => $v) {
+            if ($v && is_array($v)) if ($v['name'] == $k) $rows[] = '`' . $v['name'] . '` ' . $this->get_column_define($v);
         }
-        return false;
-    }
-
-    private function __diff($new_rows=array(),$old_info=array()){
-
-    }
-
-    private function get_update_table_sql($tablename = '',$new_db = array(),$old_db = array()){
-        $_tableInfo = unserialize($old_db['tableinfo']);
-
-        $_tableInfoOption = $_tableInfo['fields'];
-        $rows = array();
-        foreach($new_db['fields'] as $dbk=>$dbinfo){
-
-            if(!isset($_tableInfoOption[$dbk]) && !isset($_tableInfoOption[$dbk]['name'])){
-                //echo $dbinfo['name'].'添加字段'.$dbk.'  |  '.$dbinfo['name']."<br/>";
-                $rows[] = $this->add_column($tablename,$dbinfo);
-            }elseif(isset($_tableInfoOption[$dbk]['name']) && $dbinfo['name'] == $_tableInfoOption[$dbk]['name']){
-                $oldFieldsInfo = $_tableInfoOption[$dbk];
-                $update = false;
-                if($dbinfo['type'] != $oldFieldsInfo['type']){
-                    $update = true;
-                }
-                if($dbinfo['notnull'] != $oldFieldsInfo['notnull']){
-                    $update = true;
-                }
-                if($dbinfo['default'] != $oldFieldsInfo['default']){
-                    $update = true;
-                }
-                if($dbinfo['primary'] != $oldFieldsInfo['primary']){
-                    $update = true;
-                }
-                if($dbinfo['autoinc'] != $oldFieldsInfo['autoinc']){
-                    $update = true;
-                }
-                if($update) $rows[] = $this->update_column($tablename,$dbinfo);
-            }
-
+        //索引信息
+        foreach ((array)$arr['index'] as $k => $v) {
+            if ($v && is_array($v)) if ($v['name'] == $k) $rows[] = $this->get_index_define($v);
         }
-        $_tableInfoIndex = $_tableInfo['index'];
-        foreach((array)$new_db['index'] as $dbik=>$dbiv){
+        $sql = 'CREATE TABLE `'.$tablename."` (\n\t".implode(",\n\t",$rows)."\n)";
+        //存储引擎
+        $engine = isset($arr['engine'])?$arr['engine']:'InnoDB';
+        $sql .= 'ENGINE = '.$engine.' DEFAULT CHARACTER SET utf8 ';
+        //表备注
+        $sql .= isset($arr['comment'])? ("COMMENT='".$arr['comment']."';"):';';
 
-            if(!isset($_tableInfoIndex[$dbik]) && !isset($_tableInfoIndex[$dbik]['name'])){
-                //添加索引
-                $rows[] = $this->add_index_sql($tablename,$dbiv);
-            }elseif(isset($_tableInfoIndex[$dbik]['name']) && $dbiv['name'] == $_tableInfoIndex[$dbik]['name']){
-                //更新索引
-                $oldIndexInfo = $_tableInfoIndex[$dbik];
-                $update = false;
-                if($dbiv['type'] != $oldIndexInfo['type']){
-                    $update = true;
-                }
-                if($dbiv['fields'] != $oldIndexInfo['fields']){
-                    $update = true;
-                }
-                if($dbiv['method'] != $oldIndexInfo['method']){
-                    $update = true;
-                }
-                if($update){
-                    $rows[] = $this->drop_index_sql($tablename,$dbiv['name']);
-                    $rows[] = $this->add_index_sql($tablename,$dbiv);//add_index_sql
-                }
-            }
-        }
-        return $rows;
-    }
-    private function add_index_sql($tablename='',$info=array()){
-        $sql = "ALTER TABLE `{$tablename}` ADD ";
-        $type = isset($arr['type']) && $arr['type'] ? $arr['type'] : 'normal';
-        if($type == 'normal'){
-            $sql .= ' INDEX '.$info['name'];
-        }elseif($type == 'unique'){
-            $sql .= ' UNIQUE '.$info['name'];
-        }elseif($type == 'primary'){
-            $sql .= ' PRIMARY KEY ';
-        }
-        if(is_array($info['fields']) && $info['fields']){
-            $sql .= '(`'.implode('`,`',$info['fields']).'`)';
-        }else{
-            $sql .= '(`'.$info['fields'].'`)';
-        }
         return $sql;
+    }
+
+    private function add_index_sql($tablename='',$info=array())
+    {
+        $sql = "ALTER TABLE `{$tablename}` ADD " . $this->get_index_define($info);
+        return $sql;
+    }
+
+    protected function get_index_define($val=array())
+    {
+        $_index = ' ';
+        if(isset($val['name']) && $val['name'])
+        {
+            $type = isset($val['type']) && $val['type'] ? $val['type'] : 'normal';
+            $_index .= ($type == 'normal' ? '' : $type) . ' KEY `' . $val['name'] .'` ';
+        }
+
+        $_index .= ' (';
+        if(isset($val['fields']) && $val['fields'] && is_array($val['fields']))
+        {
+            foreach($val['fields'] as $v)
+            {
+                $_index .= '`' . $v . '`,';
+            }
+            $_index = substr($_index,0,-1);
+        }
+        elseif(isset($val['fields']) && $val['fields'] && !is_array($val['fields']))
+        {
+            $_index .= '`' . $val['fields'] . '`';
+        }
+        else
+        {
+            return false;
+        }
+        $_index .= ' )';
+        return $_index;
     }
 
     protected function get_column_define($v)
@@ -166,7 +119,7 @@ class Dbman
             $str .= ' varchar(255)';
         }
 
-        if (isset($v['notnull']) && $v['notnull']) {
+        if (isset($v['notnull']) && $v['notnull'] == false) {
             $str .= ' not null';
         }
 
@@ -192,150 +145,178 @@ class Dbman
         return $str;
     }
 
-    public function maintain(){
-
-        $sys_table = $this->conf['sys_table'];
-        if(!$this->table_exists($sys_table)){
-            echo PHP_EOL."You should use the init method,And use the --data parameter!".PHP_EOL;
-            exit();
-        }
-        $this->update();
-        $this->delete();
-        if($this->errMsg && is_array($this->errMsg)) {
-            foreach((array)$this->errMsg as $err){
-                echo  ' | err: ' .$err.PHP_EOL;
-            }
-            exit('Run failed .!');
-        }
-    }
-
-    public function delete(){
-        $db_arr = $this->get_schema_file();
-        $tables = $this->getTableData();
-        foreach((array)$tables as $v){
-
-            if(isset($db_arr[$v['tablename']]) && $db_arr[$v['tablename']]){
-                $newTableInfo = $db_arr[$v['tablename']];
-                $oldTableInfo = unserialize($v['tableinfo']);
-                $update_log = false;
-                foreach($oldTableInfo['fields'] as $fields_k=>$fields_v){
-                    if(!isset($newTableInfo['fields'][$fields_v['name']])){
-                        //删除字段
-                        $update_log = true;
-                        $sql = $this->drop_column($v['tablename'],$fields_v);
-                        $this->execsql($sql,$errMsg);
-                    }
-                }
-                foreach((array)$oldTableInfo['index'] as $index_k=>$index_v){
-                    if(!isset($newTableInfo['index'][$index_v['name']])){
-                        //删除索引
-                        $update_log = true;
-                        $sql = $this->drop_index_sql($v['tablename'],$index_v['name']);
-                        $this->execsql($sql,$errMsg);
-                    }
-                }
-                if($update_log){
-                    $log_sql = $this->setTableInfo($v['tablename'],$newTableInfo);
-                    $this->execsql($log_sql,$errMsg);
-                }
+    /**
+     * 检查数据是否合法
+     * //TODO
+     * @param array $data
+     * @return bool
+     */
+    private function __checkRightful($data=array(),&$errMsg=''){
+        $err = false;
+        foreach((array)$data['fields'] as $k=>$v){
+            if($k != $v['name']){
+                $errMsg = $k.' Fields are not legal !';
+                $err = true;
             }
         }
-        echo PHP_EOL."Deleting completed.!".PHP_EOL;
+        foreach((array)$data['index'] as $k=>$v){
+            if($k != $v['name']){
+                $errMsg = $k.' Index is not legal !';
+                $err = true;
+            }
+        }
+
+        return $err;
     }
 
-    public function update(){
+    public function update($showup=false){
+        if($showup)$this->showup = true;
+
         $db_arr = $this->get_schema_file();
-        $default_v = $this->conf['default_v'];
         if($db_arr && is_array($db_arr)){
-            //$this->execsql('start transaction');
             foreach($db_arr as $k=>$v){
-                $tableInfo = $this->getTableInfo($k);
-                $v['version'] = (isset($v['version']) && !empty($v['version'])) ? $v['version'] : $default_v;
-                if($tableInfo && $tableInfo['tablename'] && $tableInfo['tableinfo'] && $v['version'] != '-1'){
+                $errMsg = NULL;
+                //数据不合法，先跳出去
+                if($this->__checkRightful($v,$errMsg))
+                {
+                    echo $errMsg.PHP_EOL;
+                    continue;
+                }
+
+                $table_exists = $this->table_exists($k);
+                if($table_exists && $v['version'] != '-1'){
                     //更新表
-                    $oldInfo = md5($tableInfo['tableinfo']);
-                    $newInfo = md5(serialize($v));
-                    if($oldInfo != $newInfo){
-                        $sql_arr = $this->get_update_table_sql($k,$v,$tableInfo);
-                        if($sql_arr) {
-                            $log_sql = $this->setTableInfo($k,$v);
-                            $this->execsql($log_sql,$errMsg);
-                            foreach($sql_arr as $sql){
-                                $rs = $this->execsql($sql,$errMsg);
-                            }
-                        }
+                    $fruit = $this->__updateTable($v,$k);
+                    if($fruit)foreach($fruit as $sql){
+                        $this->execsql($sql,$errMsg,$k);
                     }
-                }elseif($tableInfo && $v['version'] == '-1'){
+                }elseif($table_exists && $v['version'] == '-1'){
                     //删除表
-                    $log_sql = $this->delTableInfo($k,$v);
-                    $this->execsql($log_sql,$errMsg);
                     $sql = $this->drop_table($k);
-                    if($sql && $sql != false){
-                        $rs = $this->execsql($sql,$errMsg);
-                    }
-                }elseif(empty($tableInfo)&& !$this->table_exists($k) && $v['version'] != '-1'){
+                    $this->execsql($sql,$errMsg,$k);
+                }elseif(empty($table_exists) && $v['version'] != '-1'){
                     //创建表
-                    $log_sql = $this->setTableInfo($k,$v);
-                    $this->execsql($log_sql,$errMsg);
-                    $sql_arr = $this->get_create_table_sql($k,$v);
-                    if($sql_arr) foreach($sql_arr as $sql){
-                        $rs = $this->execsql($sql,$errMsg);
-                    }
+                    $sql = $this->get_create_table_sql($k,$v);
+                    $this->execsql($sql,$errMsg,$k);
+
                 }
             }
         }
-
         echo PHP_EOL.'Update complete.!'.PHP_EOL;
     }
 
-    public function init($init=false){
-        $sys_table = $this->conf['sys_table'];
-        if($this->table_exists($sys_table)){
-            echo PHP_EOL."Failure: Repeat the initialization".PHP_EOL;
-            exit();
+    private function __diff($fileRow=array(),$tabRow=array(),$class='fields')
+    {
+        $update = false;
+        switch($class)
+        {
+            case 'index':
+                if(isset($fileRow['type']) && $fileRow['type'] && $fileRow['type'] != $tabRow['type']){
+                    $update = true;
+                }
+                if($fileRow['fields'] != $tabRow['fields']){
+                    $update = true;
+                }
+                if(isset($fileRow['method']) && $fileRow['method'] && $fileRow['method'] != $tabRow['method']){
+                    $update = true;
+                }
+                break;
+            default:
+                if($fileRow['type'] != $tabRow['type']){
+                    $update = true;
+                }
+                if($fileRow['notnull'] != $tabRow['notnull']){
+                    $update = true;
+                }
+                if($fileRow['default'] != $tabRow['default']){
+                    $update = true;
+                }
+                if($fileRow['primary'] != $tabRow['primary']){
+                    $update = true;
+                }
+                if($fileRow['autoinc'] != $tabRow['autoinc']){
+                    $update = true;
+                }
+                if(isset($fileRow['comment']) && $fileRow['comment'] != $tabRow['comment']){
+                    $update = true;
+                }
+                break;
         }
-        $sql = "CREATE TABLE `{$sys_table}`( `md5tablename` char(32) not null PRIMARY KEY default '' , `tablename` varchar(32) not null default '', `version` varchar(15) not null default '1.0', `tableinfo` longtext , `refresh_time` char(14) not null default 'null' )ENGINE = innodb DEFAULT CHARACTER SET utf8; ";
-        $this->execsql($sql);
-        if($init && $init == true){
-            $database = $this->conf['database'];
-            $tables   = $this->getTables($database);
-            foreach ($tables as $table) {
-                $info = $this->getFields($table);
-                $log_sql = $this->setTableInfo($table,$info);
-                $this->execsql($log_sql,$errMsg);
+        return $update;
+    }
+
+    /**
+     * 更新表
+     * @param array $fileInfo
+     * @param string $tabName
+     * @return array
+     */
+    private function __updateTable($fileInfo=array(),$tabName='')
+    {
+        $tabInfo = $this->getFields($tabName);
+        $sqlRows = array();
+        foreach((array)$fileInfo as $k=>$v)
+        {
+            if($k == 'fields')foreach ((array)$v as $ck => $cv)
+            {
+                if(!isset($tabInfo['fields'][$ck]))
+                {
+                    $sqlRows[] = $this->add_column($tabName,$cv);
+                }
+                elseif(isset($tabInfo['fields'][$ck]) && $this->__diff($cv,$tabInfo['fields'][$ck]))
+                {
+                    $sqlRows[] = $this->update_column($tabName,$cv);
+                }
+            }
+            if($k == 'index')foreach ((array)$v as $ik => $iv)
+            {
+                if(!isset($tabInfo['index'][$ik]))
+                {
+                    $sqlRows[] = $this->add_index_sql($tabName,$iv);
+                }
+                elseif(isset($tabInfo['index'][$ik]) && $this->__diff($iv,$tabInfo['index'][$ik],'index'))
+                {
+                    //$sqlRows[] = $this->update_column($tabName,$cv);
+                    $sqlRows[] = $this->drop_index_sql($tabName,$iv['name']);
+                    $sqlRows[] = $this->add_index_sql($tabName,$iv);//add_index_sql
+                }
+            }
+            //是否更新引擎和备注
+            /*if($k == 'engine' && $v != $tabInfo['engine'])
+            {
+                $sqlRows[] = 'alter table `'.$tabName.'` engine='.$v.';';
+            }*/
+            if($k == 'comment' && $v != $tabInfo['comment'])
+            {
+                $sqlRows[] = 'ALTER TABLE `'.$tabName.'` COMMENT "'.$v.'";';
             }
         }
-        echo PHP_EOL."The initial complete".PHP_EOL;
+
+        foreach((array)$tabInfo as $k=>$v){
+            if($k == 'fields')foreach ((array)$v as $ck => $cv)
+            {
+                if(!isset($fileInfo['fields'][$ck]))
+                {
+                    $sqlRows[] = $this->drop_column($tabName,$cv);
+                }
+            }
+            if($k == 'index')foreach ((array)$v as $ik => $iv)
+            {
+                if(!isset($fileInfo['index'][$ik]))
+                {
+                    $sqlRows[] = $this->drop_index_sql($tabName,$iv['name']);
+                }
+            }
+        }
+        return $sqlRows;
     }
 
     private function table_exists($tablename=''){
-        $database = $this->conf['database'];
+        $database = self::$conf['database'];
         $sql = "select TABLE_NAME AS tablename from INFORMATION_SCHEMA.TABLES where TABLE_SCHEMA='".$database."' and TABLE_NAME='".$tablename."'";
         return $this->getRow($sql);
     }
-    private function getTableInfo($tablename=''){
-        $tablename = md5($tablename);
-        $sys_table = $this->conf['sys_table'];
-        $sql = "select * from `{$sys_table}` where md5tablename='".$tablename."' limit 1";
-        return $this->getRow($sql);
-    }
-    private function getTableData($tablename=''){
-        $sys_table = $this->conf['sys_table'];
-        $sql = "select * from `{$sys_table}`";
-        return $this->getList($sql);
-    }
-    private function setTableInfo($tablename='',$tableinfo=''){
-        $sys_table = $this->conf['sys_table'];
-        $default_v = $this->conf['default_v'];
-        $sql = "REPLACE INTO `{$sys_table}`(md5tablename, tablename, version, tableinfo, refresh_time) VALUES('".md5($tablename)."','".$tablename."','".($tableinfo['version']?$tableinfo['version']:$default_v)."','".addslashes(serialize($tableinfo))."','".date('YmdHis')."')";
-        return $sql;
-    }
-    private function delTableInfo($tablename='',$tableinfo=''){
-        $sys_table = $this->conf['sys_table'];
-        //$sql = "REPLACE INTO sys_schema_info(md5tablename, tablename, version, tableinfo, refresh_time) VALUES('".md5($tablename)."','".$tablename."','".($tableinfo['version']?$tableinfo['version']:'')."','".addslashes(serialize($tableinfo))."','".date('YmdHis')."')";
-        $sql = "delete from `{$sys_table}` where md5tablename='".md5($tablename)."'";
-        return $sql;
-    }
+
     private function drop_table($tablename=''){
         $sql = "DROP TABLE IF EXISTS {$tablename}";
         //$rs = $this->execsql($sql, $errMsg);
@@ -369,14 +350,16 @@ class Dbman
         mysql_select_db( $dbname, $lnk );
         return $lnk;
     }
-    protected function execsql($sql='',&$errMsg=''){
+
+    protected function execsql($sql='',&$errMsg='',$table_name=''){
         //return false;
         $db_lnk = $this->db_lnk;
         $this->_debug_log($sql);
+        if($this->showup) echo $sql.PHP_EOL;
         if($rs = mysql_query($sql,$db_lnk)){
             return array('rs'=>$rs,'sql'=>$sql);
         }else{
-            $this->errMsg[] = mysql_error($db_lnk);
+            $this->errMsg[$table_name] = mysql_error($db_lnk);
             return false;
         }
 
@@ -418,21 +401,15 @@ class Dbman
         return false;
     }
 
-    protected function _debug_log($data){
-        if(!$this->conf['debug_log']){
-            return false;
-        }
-        error_log(date('Y-m-d H:i:s').' err '.$data.PHP_EOL,3,'/tmp/dbman.'.date('Y-m-d').'.logs');
+    protected function _debug_log($data)
+    {
+        if(self::$conf['debug_log']) error_log(date('Y-m-d H:i:s').' info : '.$data.PHP_EOL,3,self::$conf['log_path'].'dbman.'.date('Y-m-d').'.logs');
     }
 
     protected function buildDataBaseSchema($tables, $db)
     {
-        if ('' == $db) {
-            $dbName = $this->conf['database'];
-        } else {
-            $dbName = $db;
-        }
-        $backups_path = $this->conf['backups_path'];
+
+        $backups_path = self::$conf['backups_path'];
         //var_export($backups_path);die;
         foreach ($tables as $table) {
             $content = '<?php ' . PHP_EOL . 'return ';
@@ -444,8 +421,8 @@ class Dbman
 
     protected function getFields($tableName)
     {
-        $tableName = '`' . $tableName . '`';
-        $sql = 'SHOW COLUMNS FROM ' . $tableName;
+        //$tableName = '`' . $tableName . '`';
+        $sql = 'SHOW FULL COLUMNS FROM `' . $tableName.'`;';
         $result = $this->getList($sql);
         $info   = [];
         if ($result && is_array($result)) {
@@ -454,25 +431,33 @@ class Dbman
                 $info[$val['field']] = [
                     'name'    => $val['field'],
                     'type'    => $val['type'],
-                    'notnull' => (bool) ('' === $val['null']),
+                    'notnull' => $val['null'] === 'NO' ? false : true,
                     'default' => $val['default'],
                     'primary' => (strtolower($val['key']) == 'pri'),
                     'autoinc' => (strtolower($val['extra']) == 'auto_increment'),
+                    'comment' => $val['comment'],
                 ];
             }
         }
         $data['fields'] = $info;
-        $data['index'] = array();
+        $data['index'] = $this->getTableIndex($tableName);
         $data['version'] = '1.0';
         $data['engine'] = 'innodb';
         $data['comment'] = $tableName;
         return $data;
     }
 
+    private function __getFieldComment($tableName)
+    {
+        $sql = 'SHOW FULL COLUMNS  FROM `' . $tableName.'`;';
+        $result = $this->getList($sql);
+        return $result;
+    }
+
     protected function getTables($dbName = '')
     {
 
-        $sql = !empty($dbName) ? 'SHOW TABLES FROM ' . $dbName : 'SHOW TABLES ';
+        $sql = !empty($dbName) ? 'SHOW TABLES FROM ' . $dbName : 'SHOW TABLES ;';
         $result = $this->getList($sql);
         $info   = [];
         //var_export($result);die;
@@ -482,8 +467,49 @@ class Dbman
         return $info;
     }
 
+    /**
+     * 获取数据表的索引，不包括主键索引
+     * @param string $tabName
+     * @return array
+     */
+    public function getTableIndex($tabName = '')
+    {
+
+        $sql = "SHOW INDEX FROM `{$tabName}`;";
+        $result = $this->getList($sql);
+        $return = array();
+        //var_dump($result);die;
+        foreach((array)$result as $v)
+        {
+            if($v['Key_name'] != 'PRIMARY') {
+                $return[$v['Key_name']]['name'] = $v['Key_name'];
+                $idx_type = ($v['Non_unique'] == 1) ? ($v['Index_type'] == 'FULLTEXT' ? 'FULLTEXT' : 'normal') : 'unique';
+                $return[$v['Key_name']]['type'] = $idx_type;
+                @$return[$v['Key_name']]['fields'] .= $v['Column_name'] . ',';
+                $return[$v['Key_name']]['method'] = '';
+            }
+        }
+        #---------------解决历史遗留问题start---------------#
+        foreach((array)$return as $k=>$val)
+        {
+            $fields = substr($val['fields'],0,-1);
+            unset($return[$k]['fields']);
+            if(substr_count($fields,',') > 0)
+            {
+                $return[$k]['fields'] = explode(',',$fields);
+            }
+            else
+            {
+                $return[$k]['fields'] = $fields;
+            }
+        }
+        #---------------解决历史遗留问题 end---------------#
+        //var_dump($return);
+        return $return;
+    }
+
     public function backups(){
-        $database = $this->conf['database'];
+        $database = self::$conf['database'];
         $tables   = $this->getTables($database);
         $this->buildDataBaseSchema($tables,$database);
         echo PHP_EOL.'The backup data table'.PHP_EOL;

@@ -15,7 +15,7 @@ return array(
     // 文件路径
     'file_path'  =>  RUN_DIR.'/demo',
     //备份目录
-    'backups_path'=> './cache',
+    'backups_path'=> './data/',
     // 数据库表前缀
     'prefix'     =>  '',
     // 默认版本号
@@ -23,5 +23,7 @@ return array(
     // 是否访问
     'web_access' =>  false,
     // 调试模式
-    'debug_log'  =>  false,
+    'debug_log'  =>  true,
+    // 日志路径
+    'log_path'   =>  RUN_DIR.'/logs/',
 );
