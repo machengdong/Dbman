@@ -28,6 +28,13 @@ class Dbman
         $this->close();
     }
 
+    private static function pe($info=null)
+    {
+        echo "<pre>";
+        print_r($info);
+        exit();
+    }
+
     protected static function getConfig(){
         return require_once "config.php";
     }
@@ -39,19 +46,15 @@ class Dbman
             //todo 指定更新某一个表
         } else {
             $dir = self::$conf['file_path'];
-            if (is_dir($dir) && $dh = opendir($dir)) {
-                //把指定目录下的schema文件信息放到一个数组里面
-                while (($file = readdir($dh)) !== false) {
-                    if ($file != '.' && $file != '..' && pathinfo($file, PATHINFO_EXTENSION) == 'php') {
-                        $schema_file_array[basename($file, ".php")] = require $dir . '/' . $file;
-                    }
+            $directory = dir($dir);
+            while (($file = $directory->read()) !== false){
+                if ($file != '.' && $file != '..' && pathinfo($file, PATHINFO_EXTENSION) == 'php') {
+                    $schema_file_array[basename($file, ".php")] = require $dir . '/' . $file;
                 }
-                closedir($dh);
-
             }
+            $directory->close();
         }
-
-       return $schema_file_array;
+        return $schema_file_array;
     }
 
     private function get_create_table_sql($tablename = '',$arr = array())
@@ -267,6 +270,7 @@ class Dbman
                 {
                     $sqlRows[] = $this->update_column($tabName,$cv);
                 }
+                //unset($tabInfo[$k][$ck]);
             }
             if($k == 'index')foreach ((array)$v as $ik => $iv)
             {
@@ -280,6 +284,7 @@ class Dbman
                     $sqlRows[] = $this->drop_index_sql($tabName,$iv['name']);
                     $sqlRows[] = $this->add_index_sql($tabName,$iv);//add_index_sql
                 }
+                //unset($tabInfo[$k][$ck]);
             }
             //是否更新引擎和备注
             /*if($k == 'engine' && $v != $tabInfo['engine'])
@@ -290,8 +295,12 @@ class Dbman
             {
                 $sqlRows[] = 'ALTER TABLE `'.$tabName.'` COMMENT "'.$v.'";';
             }
-        }
 
+        }
+        /**
+         * 用unset($tabInfo[$k][$ck]);的方式可能会优雅一点
+         * 但是，以下这种更容易让人理解
+         */
         foreach((array)$tabInfo as $k=>$v){
             if($k == 'fields')foreach ((array)$v as $ck => $cv)
             {
